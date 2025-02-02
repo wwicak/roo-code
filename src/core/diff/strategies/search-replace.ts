@@ -1,4 +1,4 @@
-import { DiffStrategy, DiffResult } from "../types"
+import { DiffStrategy, DiffResult, FileStats } from "../types"
 import { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } from "../../../integrations/misc/extract-text"
 
 const BUFFER_LINES = 20 // Number of extra context lines to show before and after matches
@@ -158,9 +158,11 @@ Your search/replace content here
 	async applyDiff(
 		originalContent: string,
 		diffContent: string,
-		startLine?: number,
-		endLine?: number,
+		options?: { startLine?: number; endLine?: number; fileStats?: FileStats; collectMetrics?: boolean },
 	): Promise<DiffResult> {
+		const startTime = options?.collectMetrics ? performance.now() : 0
+		const startLine = options?.startLine
+		const endLine = options?.endLine
 		// Extract the search and replace blocks
 		const match = diffContent.match(/<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/)
 		if (!match) {
@@ -358,6 +360,14 @@ Your search/replace content here
 		return {
 			success: true,
 			content: finalContent,
+			appliedLines: indentedReplaceLines.length,
+			metrics: options?.collectMetrics
+				? {
+						executionTime: performance.now() - startTime,
+						memoryUsed: process.memoryUsage().heapUsed,
+						accuracyScore: bestMatchScore,
+					}
+				: undefined,
 		}
 	}
 }

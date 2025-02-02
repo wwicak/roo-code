@@ -1142,7 +1142,6 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 							const diffStrategy = getDiffStrategy(
 								apiConfiguration.apiModelId || apiConfiguration.openRouterModelId || "",
 								fuzzyMatchThreshold,
-								Experiments.isEnabled(experiments, EXPERIMENT_IDS.DIFF_STRATEGY),
 							)
 							const cwd =
 								vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath).at(0) || ""
