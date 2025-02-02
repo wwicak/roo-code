@@ -1,7 +1,7 @@
 import { Diff, Hunk, Change } from "./types"
 import { findBestMatch, prepareSearchString } from "./search-strategies"
 import { applyEdit } from "./edit-strategies"
-import { DiffResult, DiffStrategy } from "../../types"
+import { DiffResult, DiffStrategy, FileStats } from "../../types"
 
 export class NewUnifiedDiffStrategy implements DiffStrategy {
 	private readonly confidenceThreshold: number
@@ -232,8 +232,7 @@ Your diff here
 	async applyDiff(
 		originalContent: string,
 		diffContent: string,
-		startLine?: number,
-		endLine?: number,
+		options?: { startLine?: number; endLine?: number; fileStats?: FileStats; collectMetrics?: boolean },
 	): Promise<DiffResult> {
 		const parsedDiff = this.parseUnifiedDiff(diffContent)
 		const originalLines = originalContent.split("\n")
@@ -317,8 +316,8 @@ Your diff here
 						"- There may be too many changes in a single hunk, try splitting the changes into multiple hunks\n"
 				}
 
-				if (startLine && endLine) {
-					errorMsg += `\nSearch Range: lines ${startLine}-${endLine}\n`
+				if (options?.startLine && options?.endLine) {
+					errorMsg += `\nSearch Range: lines ${options.startLine}-${options.endLine}\n`
 				}
 
 				return { success: false, error: errorMsg }
@@ -345,6 +344,13 @@ Your diff here
 			}
 		}
 
-		return { success: true, content: result.join("\n") }
+		// Calculate number of lines changed
+		const appliedLines = parsedDiff.hunks.reduce(
+			(total, hunk) =>
+				total + hunk.changes.filter((change) => change.type === "add" || change.type === "remove").length,
+			0,
+		)
+
+		return { success: true, content: result.join("\n"), appliedLines }
 	}
 }
