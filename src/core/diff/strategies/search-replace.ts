@@ -1,7 +1,9 @@
 import { DiffStrategy, DiffResult, FileStats } from "../types"
 import { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } from "../../../integrations/misc/extract-text"
+import { distance } from "fastest-levenshtein"
 
 const BUFFER_LINES = 20 // Number of extra context lines to show before and after matches
+
 
 // Cache for memoized similarity calculations
 const similarityCache = new Map<string, number>()
@@ -44,6 +46,7 @@ function levenshteinDistance(a: string, b: string): number {
 	return row[b.length]
 }
 
+
 function getSimilarity(original: string, search: string): number {
 	if (search === "") {
 		return 1
@@ -74,11 +77,14 @@ function getSimilarity(original: string, search: string): number {
 	// Calculate Levenshtein distance
 	const distance = levenshteinDistance(normalizedOriginal, normalizedSearch)
 
-	// Calculate similarity ratio (0 to 1, where 1 is exact match)
+
+	// Calculate similarity ratio (0 to 1, where 1 is an exact match)
 	const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length)
+
 	const similarity = 1 - distance / maxLength
 	similarityCache.set(cacheKey, similarity)
 	return similarity
+
 }
 
 export class SearchReplaceDiffStrategy implements DiffStrategy {
@@ -111,11 +117,11 @@ Parameters:
 
 Diff format:
 \`\`\`
-<<<<<<< SEARCH
+<<<<<< SEARCH
 [exact content to find including whitespace]
 =======
 [new content to replace with]
->>>>>>> REPLACE
+>>>>>> REPLACE
 \`\`\`
 
 Example:
@@ -131,7 +137,7 @@ Original file:
 
 Search/Replace content:
 \`\`\`
-<<<<<<< SEARCH
+<<<<<< SEARCH
 def calculate_total(items):
     total = 0
     for item in items:
@@ -141,7 +147,7 @@ def calculate_total(items):
 def calculate_total(items):
     """Calculate total with 10% markup"""
     return sum(item * 1.1 for item in items)
->>>>>>> REPLACE
+>>>>>> REPLACE
 \`\`\`
 
 Usage:
