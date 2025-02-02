@@ -54,6 +54,7 @@ type SecretKey =
 	| "geminiApiKey"
 	| "openAiNativeApiKey"
 	| "deepSeekApiKey"
+	| "nvidiaApiKey"
 	| "mistralApiKey"
 	| "unboundApiKey"
 type GlobalStateKey =
@@ -1141,7 +1142,6 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 							const diffStrategy = getDiffStrategy(
 								apiConfiguration.apiModelId || apiConfiguration.openRouterModelId || "",
 								fuzzyMatchThreshold,
-								Experiments.isEnabled(experiments, EXPERIMENT_IDS.DIFF_STRATEGY),
 							)
 							const cwd =
 								vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath).at(0) || ""
@@ -1465,6 +1465,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			geminiApiKey,
 			openAiNativeApiKey,
 			deepSeekApiKey,
+			nvidiaApiKey,
 			azureApiVersion,
 			openAiStreamingEnabled,
 			openRouterModelId,
@@ -1505,6 +1506,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 		await this.storeSecret("geminiApiKey", geminiApiKey)
 		await this.storeSecret("openAiNativeApiKey", openAiNativeApiKey)
 		await this.storeSecret("deepSeekApiKey", deepSeekApiKey)
+		await this.storeSecret("nvidiaApiKey", nvidiaApiKey)
 		await this.updateGlobalState("azureApiVersion", azureApiVersion)
 		await this.updateGlobalState("openAiStreamingEnabled", openAiStreamingEnabled)
 		await this.updateGlobalState("openRouterModelId", openRouterModelId)
@@ -2146,6 +2148,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			geminiApiKey,
 			openAiNativeApiKey,
 			deepSeekApiKey,
+			nvidiaApiKey,
 			mistralApiKey,
 			azureApiVersion,
 			openAiStreamingEnabled,
@@ -2220,6 +2223,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			this.getSecret("geminiApiKey") as Promise<string | undefined>,
 			this.getSecret("openAiNativeApiKey") as Promise<string | undefined>,
 			this.getSecret("deepSeekApiKey") as Promise<string | undefined>,
+			this.getSecret("nvidiaApiKey") as Promise<string | undefined>,
 			this.getSecret("mistralApiKey") as Promise<string | undefined>,
 			this.getGlobalState("azureApiVersion") as Promise<string | undefined>,
 			this.getGlobalState("openAiStreamingEnabled") as Promise<boolean | undefined>,
@@ -2311,6 +2315,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 				geminiApiKey,
 				openAiNativeApiKey,
 				deepSeekApiKey,
+				nvidiaApiKey,
 				mistralApiKey,
 				azureApiVersion,
 				openAiStreamingEnabled,
@@ -2473,6 +2478,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			"deepSeekApiKey",
 			"mistralApiKey",
 			"unboundApiKey",
+			"nvidiaApiKey",
 		]
 		for (const key of secretKeys) {
 			await this.storeSecret(key, undefined)
