@@ -3,38 +3,57 @@ import { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } from "../..
 
 const BUFFER_LINES = 20 // Number of extra context lines to show before and after matches
 
+// Cache for memoized similarity calculations
+const similarityCache = new Map<string, number>()
+
+// Compute rolling hash for faster string comparison
+function computeRollingHash(str: string): number {
+	const prime = 31
+	let hash = 0
+	for (let i = 0; i < str.length; i++) {
+		hash = (hash * prime + str.charCodeAt(i)) >>> 0
+	}
+	return hash
+}
+
 function levenshteinDistance(a: string, b: string): number {
-	const matrix: number[][] = []
+	// Early exit for empty strings or exact matches
+	if (a === b) return 0
+	if (!a.length) return b.length
+	if (!b.length) return a.length
 
-	// Initialize matrix
-	for (let i = 0; i <= a.length; i++) {
-		matrix[i] = [i]
-	}
-	for (let j = 0; j <= b.length; j++) {
-		matrix[0][j] = j
+	// Use typed arrays for better performance
+	const row = new Uint32Array(b.length + 1)
+	let prev
+	let temp
+
+	// Initialize first row
+	for (let i = 0; i <= b.length; i++) {
+		row[i] = i
 	}
 
-	// Fill matrix
 	for (let i = 1; i <= a.length; i++) {
+		prev = i
 		for (let j = 1; j <= b.length; j++) {
-			if (a[i - 1] === b[j - 1]) {
-				matrix[i][j] = matrix[i - 1][j - 1]
-			} else {
-				matrix[i][j] = Math.min(
-					matrix[i - 1][j - 1] + 1, // substitution
-					matrix[i][j - 1] + 1, // insertion
-					matrix[i - 1][j] + 1, // deletion
-				)
-			}
+			temp = row[j]
+			row[j] = a[i - 1] === b[j - 1] ? row[j - 1] : Math.min(row[j - 1], row[j], prev) + 1
+			prev = temp
 		}
 	}
 
-	return matrix[a.length][b.length]
+	return row[b.length]
 }
 
 function getSimilarity(original: string, search: string): number {
 	if (search === "") {
 		return 1
+	}
+
+	// Check cache first
+	const cacheKey = `${original}|${search}`
+	const cachedResult = similarityCache.get(cacheKey)
+	if (cachedResult !== undefined) {
+		return cachedResult
 	}
 
 	// Normalize strings by removing extra whitespace but preserve case
@@ -47,12 +66,19 @@ function getSimilarity(original: string, search: string): number {
 		return 1
 	}
 
+	// Quick check using rolling hash
+	if (computeRollingHash(normalizedOriginal) === computeRollingHash(normalizedSearch)) {
+		return 1
+	}
+
 	// Calculate Levenshtein distance
 	const distance = levenshteinDistance(normalizedOriginal, normalizedSearch)
 
 	// Calculate similarity ratio (0 to 1, where 1 is exact match)
 	const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length)
-	return 1 - distance / maxLength
+	const similarity = 1 - distance / maxLength
+	similarityCache.set(cacheKey, similarity)
+	return similarity
 }
 
 export class SearchReplaceDiffStrategy implements DiffStrategy {
@@ -213,38 +239,47 @@ Your search/replace content here
 			}
 		}
 
-		// If no match found yet, try middle-out search within bounds
+		// If no match found yet, try optimized search within bounds
 		if (matchIndex === -1) {
-			const midPoint = Math.floor((searchStartIndex + searchEndIndex) / 2)
-			let leftIndex = midPoint
-			let rightIndex = midPoint + 1
+			// Pre-compute search chunk hash for faster comparison
+			const searchHash = computeRollingHash(searchChunk)
 
-			// Search outward from the middle within bounds
-			while (leftIndex >= searchStartIndex || rightIndex <= searchEndIndex - searchLines.length) {
-				// Check left side if still in range
-				if (leftIndex >= searchStartIndex) {
-					const originalChunk = originalLines.slice(leftIndex, leftIndex + searchLines.length).join("\n")
-					const similarity = getSimilarity(originalChunk, searchChunk)
-					if (similarity > bestMatchScore) {
-						bestMatchScore = similarity
-						matchIndex = leftIndex
-						bestMatchContent = originalChunk
-					}
-					leftIndex--
+			// Use a sliding window approach with early exit
+			const windowSize = searchLines.length
+			const maxIndex = searchEndIndex - windowSize + 1
+
+			for (let i = searchStartIndex; i < maxIndex; i++) {
+				// Quick hash check first
+				const chunk = originalLines.slice(i, i + windowSize).join("\n")
+				if (computeRollingHash(chunk) === searchHash) {
+					matchIndex = i
+					bestMatchScore = 1
+					bestMatchContent = chunk
+					break
 				}
 
-				// Check right side if still in range
-				if (rightIndex <= searchEndIndex - searchLines.length) {
-					const originalChunk = originalLines.slice(rightIndex, rightIndex + searchLines.length).join("\n")
-					const similarity = getSimilarity(originalChunk, searchChunk)
+				// If hash doesn't match but we're within threshold range,
+				// do a more detailed similarity check
+				if (i % 3 === 0) {
+					// Check every 3rd position for performance
+					const similarity = getSimilarity(chunk, searchChunk)
 					if (similarity > bestMatchScore) {
 						bestMatchScore = similarity
-						matchIndex = rightIndex
-						bestMatchContent = originalChunk
+						matchIndex = i
+						bestMatchContent = chunk
 					}
-					rightIndex++
+
+					// Early exit if we found a good enough match
+					if (bestMatchScore >= 0.95) {
+						break
+					}
 				}
 			}
+		}
+
+		// Clear similarity cache to prevent memory leaks
+		if (similarityCache.size > 1000) {
+			similarityCache.clear()
 		}
 
 		// Require similarity to meet threshold
@@ -280,48 +315,46 @@ Your search/replace content here
 		// Get the matched lines from the original content
 		const matchedLines = originalLines.slice(matchIndex, matchIndex + searchLines.length)
 
-		// Get the exact indentation (preserving tabs/spaces) of each line
-		const originalIndents = matchedLines.map((line) => {
+		// Optimize indentation handling
+		const getIndent = (line: string): string => {
 			const match = line.match(/^[\t ]*/)
 			return match ? match[0] : ""
-		})
+		}
 
-		// Get the exact indentation of each line in the search block
-		const searchIndents = searchLines.map((line) => {
-			const match = line.match(/^[\t ]*/)
-			return match ? match[0] : ""
-		})
+		// Pre-compute indents once
+		const originalIndent = getIndent(matchedLines[0] || "")
+		const searchBaseIndent = getIndent(searchLines[0] || "")
+		const searchBaseLevel = searchBaseIndent.length
 
 		// Apply the replacement while preserving exact indentation
-		const indentedReplaceLines = replaceLines.map((line, i) => {
-			// Get the matched line's exact indentation
-			const matchedIndent = originalIndents[0] || ""
-
-			// Get the current line's indentation relative to the search content
-			const currentIndentMatch = line.match(/^[\t ]*/)
-			const currentIndent = currentIndentMatch ? currentIndentMatch[0] : ""
-			const searchBaseIndent = searchIndents[0] || ""
-
-			// Calculate the relative indentation level
-			const searchBaseLevel = searchBaseIndent.length
+		const indentedReplaceLines = replaceLines.map((line) => {
+			const currentIndent = getIndent(line)
 			const currentLevel = currentIndent.length
 			const relativeLevel = currentLevel - searchBaseLevel
 
-			// If relative level is negative, remove indentation from matched indent
-			// If positive, add to matched indent
-			const finalIndent =
-				relativeLevel < 0
-					? matchedIndent.slice(0, Math.max(0, matchedIndent.length + relativeLevel))
-					: matchedIndent + currentIndent.slice(searchBaseLevel)
+			let finalIndent: string
+			if (relativeLevel < 0) {
+				finalIndent = originalIndent.slice(0, Math.max(0, originalIndent.length + relativeLevel))
+			} else {
+				// Reuse existing indent strings where possible
+				finalIndent = originalIndent + currentIndent.slice(searchBaseLevel)
+			}
 
 			return finalIndent + line.trim()
 		})
 
-		// Construct the final content
-		const beforeMatch = originalLines.slice(0, matchIndex)
-		const afterMatch = originalLines.slice(matchIndex + searchLines.length)
+		// Construct the final content efficiently
+		const finalParts = []
+		if (matchIndex > 0) {
+			finalParts.push(originalLines.slice(0, matchIndex).join(lineEnding))
+		}
+		finalParts.push(indentedReplaceLines.join(lineEnding))
+		if (matchIndex + searchLines.length < originalLines.length) {
+			finalParts.push(originalLines.slice(matchIndex + searchLines.length).join(lineEnding))
+		}
 
-		const finalContent = [...beforeMatch, ...indentedReplaceLines, ...afterMatch].join(lineEnding)
+		const finalContent = finalParts.join(lineEnding)
+
 		return {
 			success: true,
 			content: finalContent,

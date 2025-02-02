@@ -4,6 +4,7 @@ export type ApiProvider =
 	| "anthropic"
 	| "glama"
 	| "openrouter"
+	| "nvidia"
 	| "bedrock"
 	| "vertex"
 	| "openai"
@@ -60,6 +61,11 @@ export interface ApiHandlerOptions {
 	includeMaxTokens?: boolean
 	unboundApiKey?: string
 	unboundModelId?: string
+	nvidiaBaseUrl?: string
+	nvidiaApiKey?: string
+	nvidiaModelId?: string
+	nvidiaStreamingEnabled?: boolean
+	nvidiaCustomModelInfo?: ModelInfo
 }
 
 export type ApiConfiguration = ApiHandlerOptions & {
@@ -602,6 +608,21 @@ export const deepSeekModels = {
 		inputPrice: 0.55, // $0.55 per million tokens
 		outputPrice: 2.19, // $2.19 per million tokens
 		description: `DeepSeek-R1 achieves performance comparable to OpenAI-o1 across math, code, and reasoning tasks.`,
+	},
+} as const satisfies Record<string, ModelInfo>
+
+// NVIDIA
+export type NvidiaModelId = keyof typeof nvidiaModels
+export const nvidiaDefaultModelId: NvidiaModelId = "deepseek-ai/deepseek-r1"
+export const nvidiaModels = {
+	"deepseek-ai/deepseek-r1": {
+		maxTokens: 8192,
+		contextWindow: 64_000,
+		supportsImages: false,
+		supportsPromptCache: false,
+		inputPrice: 0.55,
+		outputPrice: 2.19,
+		description: `DeepSeek-R1 on NVIDIA platform achieves performance comparable to OpenAI-o1 across math, code, and reasoning tasks.`,
 	},
 } as const satisfies Record<string, ModelInfo>
 
