@@ -86,11 +86,11 @@ Parameters:
 
 Diff format:
 \`\`\`
-<<<<<< SEARCH
+<<<<<<< SEARCH
 [exact content to find including whitespace]
 =======
 [new content to replace with]
->>>>>> REPLACE
+>>>>>>> REPLACE
 \`\`\`
 
 Example:
@@ -106,7 +106,7 @@ Original file:
 
 Search/Replace content:
 \`\`\`
-<<<<<< SEARCH
+<<<<<<< SEARCH
 def calculate_total(items):
     total = 0
     for item in items:
@@ -116,7 +116,7 @@ def calculate_total(items):
 def calculate_total(items):
     """Calculate total with 10% markup"""
     return sum(item * 1.1 for item in items)
->>>>>> REPLACE
+>>>>>>> REPLACE
 \`\`\`
 
 Usage:
