@@ -15,7 +15,86 @@ The current code editing capabilities:
 
 ## Decision
 
-Implement an intelligent editing stack with:
+Implement an intelligent editing stack with enhanced context management:
+
+> **Architectural North Star**
+> "Understand code relationships first, edit precisely second"
+
+### Context Preservation Foundation
+
+1. **Hierarchical Chunking System**
+
+```typescript
+interface CodeChunkingConfig {
+	maxFileSizeMB: number
+	depthWeightedSampling: boolean
+	relationshipPrioritization: {
+		importDependencies: number
+		typeReferences: number
+		callGraphEdges: number
+	}
+}
+```
+
+2. **Layered Knowledge Representation**
+
+```mermaid
+graph TD
+  A[Raw Code] --> B[Syntax Tree]
+  B --> C[Semantic Graph]
+  C --> D[Architectural Boundaries]
+  D --> E[Context-Weighted Embeddings]
+```
+
+### 3. Adaptive Context Window with Bloom Filters
+
+```typescript
+class ContextWindowManager {
+	private currentFocus: CodeFocusArea
+	private contextCache: Map<string, ContextSlice>
+	private bloomFilter: CountingBloomFilter
+	private bloomStats = new BloomMetricsCollector()
+
+	constructor(
+		config: {
+			bloomFilterSize?: number
+			falsePositiveRate?: number
+			refreshIntervalMs?: number
+		} = {},
+	) {
+		this.bloomFilter = new CountingBloomFilter({
+			expectedItems: config.bloomFilterSize || 10000,
+			falsePositiveRate: config.falsePositiveRate || 0.01,
+		})
+
+		setInterval(() => this.refreshFilter(), config.refreshIntervalMs || 300_000) // 5 minutes
+	}
+
+	private refreshFilter() {
+		const newFilter = new CountingBloomFilter({
+			expectedItems: this.contextCache.size * 1.5,
+			falsePositiveRate: 0.01,
+		})
+
+		for (const key of this.contextCache.keys()) {
+			newFilter.add(key)
+		}
+
+		this.bloomFilter = newFilter
+		this.bloomStats.recordRefresh()
+	}
+
+	async getRelevantContext(target: CodePosition, config: ContextRetrievalConfig): Promise<ContextBundle> {
+		// Combines:
+		// - Structural proximity
+		// - Semantic similarity
+		// - Change history correlation
+
+		// Track Bloom filter effectiveness
+		this.bloomStats.recordQuery()
+	}
+}
+```
 
 ### 1. Project Knowledge Graph
 
@@ -52,9 +131,39 @@ graph TD
 - Threshold auto-tuning
 - Micro-training on project history
 
-## Consequences
+## Memory-Efficient Design
 
-**Positive:**
+**Lightweight Knowledge Graph Implementation**
+
+```typescript
+// Integrated with existing sliding window parser (src/core/sliding-window/)
+class KnowledgeGraph {
+	constructor(
+		private slidingWindow: SlidingWindowManager,
+		private maxMemoryMB: number = 512,
+	) {
+		// Uses 3-level storage:
+		// 1. Active AST fragments in memory (≤256KB)
+		// 2. Recent relationships in memory cache (≤8MB)
+		// 3. Disk-backed architectural boundaries
+	}
+}
+```
+
+**Resource-Aware Operations**
+
+```mermaid
+graph TD
+  A[File Changed] --> B{Size >1MB?}
+  B -->|Yes| C[Sliding Window Parse]
+  B -->|No| D[Full AST Parse]
+  C --> E[Store Partial AST]
+  D --> F[Store Complete AST]
+  E --> G[Update Relationships]
+  F --> G
+```
+
+## Consequences
 
 - Safer large-scale refactors
 - Better edit sequencing
