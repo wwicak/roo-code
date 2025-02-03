@@ -4,7 +4,6 @@ import { distance } from "fastest-levenshtein"
 
 const BUFFER_LINES = 20 // Number of extra context lines to show before and after matches
 
-
 // Cache for memoized similarity calculations
 const similarityCache = new Map<string, number>()
 
@@ -17,35 +16,6 @@ function computeRollingHash(str: string): number {
 	}
 	return hash
 }
-
-function levenshteinDistance(a: string, b: string): number {
-	// Early exit for empty strings or exact matches
-	if (a === b) return 0
-	if (!a.length) return b.length
-	if (!b.length) return a.length
-
-	// Use typed arrays for better performance
-	const row = new Uint32Array(b.length + 1)
-	let prev
-	let temp
-
-	// Initialize first row
-	for (let i = 0; i <= b.length; i++) {
-		row[i] = i
-	}
-
-	for (let i = 1; i <= a.length; i++) {
-		prev = i
-		for (let j = 1; j <= b.length; j++) {
-			temp = row[j]
-			row[j] = a[i - 1] === b[j - 1] ? row[j - 1] : Math.min(row[j - 1], row[j], prev) + 1
-			prev = temp
-		}
-	}
-
-	return row[b.length]
-}
-
 
 function getSimilarity(original: string, search: string): number {
 	if (search === "") {
@@ -75,16 +45,15 @@ function getSimilarity(original: string, search: string): number {
 	}
 
 	// Calculate Levenshtein distance
-	const distance = levenshteinDistance(normalizedOriginal, normalizedSearch)
-
+	//const distance = levenshteinDistance(normalizedOriginal, normalizedSearch)
+	const dist = distance(normalizedOriginal, normalizedSearch)
 
 	// Calculate similarity ratio (0 to 1, where 1 is an exact match)
 	const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length)
 
-	const similarity = 1 - distance / maxLength
+	const similarity = 1 - dist / maxLength
 	similarityCache.set(cacheKey, similarity)
 	return similarity
-
 }
 
 export class SearchReplaceDiffStrategy implements DiffStrategy {
