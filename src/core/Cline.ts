@@ -156,7 +156,12 @@ export class Cline {
 			const { experiments: stateExperimental } = (await this.providerRef.deref()?.getState()) ?? {}
 			experimentalDiffStrategy = stateExperimental?.[EXPERIMENT_IDS.DIFF_STRATEGY] ?? false
 		}
-		this.diffStrategy = getDiffStrategy(this.api.getModel().id, this.fuzzyMatchThreshold)
+		this.diffStrategy = getDiffStrategy(
+			this.api.getModel().id,
+			undefined,
+			this.fuzzyMatchThreshold,
+			experimentalDiffStrategy,
+		)
 	}
 
 	// Storing task to disk for history
