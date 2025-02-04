@@ -257,11 +257,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 		await visibleProvider.initClineWithTask(prompt)
 	}
 
-	resolveWebviewView(
-		webviewView: vscode.WebviewView | vscode.WebviewPanel,
-		//context: vscode.WebviewViewResolveContext<unknown>, used to recreate a deallocated webview, but we don't need this since we use retainContextWhenHidden
-		//token: vscode.CancellationToken
-	): void | Thenable<void> {
+	async resolveWebviewView(webviewView: vscode.WebviewView | vscode.WebviewPanel) {
 		this.outputChannel.appendLine("Resolving webview view")
 		this.view = webviewView
 
@@ -278,7 +274,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 
 		webviewView.webview.html =
 			this.context.extensionMode === vscode.ExtensionMode.Development
-				? this.getHMRHtmlContent(webviewView.webview)
+				? await this.getHMRHtmlContent(webviewView.webview)
 				: this.getHtmlContent(webviewView.webview)
 
 		// Sets up an event listener to listen for messages passed from the webview view context
@@ -403,9 +399,22 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 		await this.view?.webview.postMessage(message)
 	}
 
-	private getHMRHtmlContent(webview: vscode.Webview): string {
-		const nonce = getNonce()
+	private async getHMRHtmlContent(webview: vscode.Webview): Promise<string> {
+		const localPort = "5173"
+		const localServerUrl = `localhost:${localPort}`
 
+		// Check if local dev server is running.
+		try {
+			await axios.get(`http://${localServerUrl}`)
+		} catch (error) {
+			vscode.window.showErrorMessage(
+				"Local development server is not running, HMR will not work. Please run 'npm run dev' before launching the extension to enable HMR.",
+			)
+
+			return this.getHtmlContent(webview)
+		}
+
+		const nonce = getNonce()
 		const stylesUri = getUri(webview, this.context.extensionUri, ["webview-ui", "build", "assets", "index.css"])
 		const codiconsUri = getUri(webview, this.context.extensionUri, [
 			"node_modules",
@@ -416,8 +425,6 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 		])
 
 		const file = "src/index.tsx"
-		const localPort = "5173"
-		const localServerUrl = `localhost:${localPort}`
 		const scriptUri = `http://${localServerUrl}/${file}`
 
 		const reactRefresh = /*html*/ `
