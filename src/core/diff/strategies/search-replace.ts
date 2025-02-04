@@ -3,49 +3,109 @@ import { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } from "../..
 import { distance } from "fastest-levenshtein"
 
 const BUFFER_LINES = 20 // Number of extra context lines to show before and after matches
+const MAX_CACHE_SIZE = 1000 // Maximum number of entries in LRU cache
 
+// MurmurHash3 implementation for better hash distribution
+function murmurHash3(str: string): number {
+	const seed = 0x1234abcd
+	const c1 = 0xcc9e2d51
+	const c2 = 0x1b873593
+	const r1 = 15
+	const r2 = 13
+	const m = 5
+	const n = 0xe6546b64
 
-// Cache for memoized similarity calculations
-const similarityCache = new Map<string, number>()
+	let hash = seed
+	const chunks = Math.floor(str.length / 4)
 
-// Compute rolling hash for faster string comparison
-function computeRollingHash(str: string): number {
-	const prime = 31
-	let hash = 0
-	for (let i = 0; i < str.length; i++) {
-		hash = (hash * prime + str.charCodeAt(i)) >>> 0
+	// Process 4 bytes at a time
+	for (let i = 0; i < chunks; i++) {
+		let k =
+			(str.charCodeAt(i * 4) & 0xff) |
+			((str.charCodeAt(i * 4 + 1) & 0xff) << 8) |
+			((str.charCodeAt(i * 4 + 2) & 0xff) << 16) |
+			((str.charCodeAt(i * 4 + 3) & 0xff) << 24)
+
+		k = Math.imul(k, c1)
+		k = (k << r1) | (k >>> (32 - r1))
+		k = Math.imul(k, c2)
+
+		hash ^= k
+		hash = (hash << r2) | (hash >>> (32 - r2))
+		hash = Math.imul(hash, m) + n
 	}
-	return hash
-}
 
-function levenshteinDistance(a: string, b: string): number {
-	// Early exit for empty strings or exact matches
-	if (a === b) return 0
-	if (!a.length) return b.length
-	if (!b.length) return a.length
-
-	// Use typed arrays for better performance
-	const row = new Uint32Array(b.length + 1)
-	let prev
-	let temp
-
-	// Initialize first row
-	for (let i = 0; i <= b.length; i++) {
-		row[i] = i
-	}
-
-	for (let i = 1; i <= a.length; i++) {
-		prev = i
-		for (let j = 1; j <= b.length; j++) {
-			temp = row[j]
-			row[j] = a[i - 1] === b[j - 1] ? row[j - 1] : Math.min(row[j - 1], row[j], prev) + 1
-			prev = temp
+	// Handle remaining bytes
+	let k = 0
+	const remaining = str.length - chunks * 4
+	if (remaining > 0) {
+		if (remaining >= 3) k ^= str.charCodeAt(str.length - 3) << 16
+		if (remaining >= 2) k ^= str.charCodeAt(str.length - 2) << 8
+		if (remaining >= 1) {
+			k ^= str.charCodeAt(str.length - 1)
+			k = Math.imul(k, c1)
+			k = (k << r1) | (k >>> (32 - r1))
+			k = Math.imul(k, c2)
+			hash ^= k
 		}
 	}
 
-	return row[b.length]
+	// Finalization
+	hash ^= str.length
+	hash ^= hash >>> 16
+	hash = Math.imul(hash, 0x85ebca6b)
+	hash ^= hash >>> 13
+	hash = Math.imul(hash, 0xc2b2ae35)
+	hash ^= hash >>> 16
+
+	return hash >>> 0
 }
 
+// LRU Cache implementation
+class LRUCache<K, V> {
+	private cache: Map<K, V>
+	private readonly maxSize: number
+
+	constructor(maxSize: number) {
+		this.cache = new Map()
+		this.maxSize = maxSize
+	}
+
+	get(key: K): V | undefined {
+		const value = this.cache.get(key)
+		if (value !== undefined) {
+			// Refresh item position
+			this.cache.delete(key)
+			this.cache.set(key, value)
+		}
+		return value
+	}
+
+	set(key: K, value: V): void {
+		if (this.cache.size >= this.maxSize) {
+			// Remove oldest entry (first item in map)
+			const firstKey = this.cache.keys().next().value
+			if (firstKey !== undefined) {
+				this.cache.delete(firstKey)
+			}
+		}
+		this.cache.set(key, value)
+	}
+
+	clear(): void {
+		this.cache.clear()
+	}
+
+	get size(): number {
+		return this.cache.size
+	}
+}
+
+// Initialize LRU cache for similarity calculations
+const similarityCache = new LRUCache<string, number>(MAX_CACHE_SIZE)
+
+// WeakMap for storing normalized strings to reduce memory usage
+const normalizedStrings = new WeakMap<object, string>()
 
 function getSimilarity(original: string, search: string): number {
 	if (search === "") {
@@ -59,32 +119,39 @@ function getSimilarity(original: string, search: string): number {
 		return cachedResult
 	}
 
-	// Normalize strings by removing extra whitespace but preserve case
-	const normalizeStr = (str: string) => str.replace(/\s+/g, " ").trim()
+	// Normalize strings efficiently
+	const normalizeStr = (str: string): string => {
+		const key = { str } // Create object key for WeakMap
+		let normalized = normalizedStrings.get(key)
+		if (!normalized) {
+			normalized = str.replace(/\s+/g, " ").trim()
+			normalizedStrings.set(key, normalized)
+		}
+		return normalized
+	}
 
 	const normalizedOriginal = normalizeStr(original)
 	const normalizedSearch = normalizeStr(search)
 
+	// Quick exact match check
 	if (normalizedOriginal === normalizedSearch) {
+		similarityCache.set(cacheKey, 1)
 		return 1
 	}
 
-	// Quick check using rolling hash
-	if (computeRollingHash(normalizedOriginal) === computeRollingHash(normalizedSearch)) {
+	// Hash comparison for quick rejection
+	if (murmurHash3(normalizedOriginal) === murmurHash3(normalizedSearch)) {
+		similarityCache.set(cacheKey, 1)
 		return 1
 	}
 
 	// Calculate Levenshtein distance
-	const distance = levenshteinDistance(normalizedOriginal, normalizedSearch)
-
-
-	// Calculate similarity ratio (0 to 1, where 1 is an exact match)
+	const dist = distance(normalizedOriginal, normalizedSearch)
 	const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length)
+	const similarity = 1 - dist / maxLength
 
-	const similarity = 1 - distance / maxLength
 	similarityCache.set(cacheKey, similarity)
 	return similarity
-
 }
 
 export class SearchReplaceDiffStrategy implements DiffStrategy {
@@ -92,9 +159,6 @@ export class SearchReplaceDiffStrategy implements DiffStrategy {
 	private bufferLines: number
 
 	constructor(fuzzyThreshold?: number, bufferLines?: number) {
-		// Use provided threshold or default to exact matching (1.0)
-		// Note: fuzzyThreshold is inverted in UI (0% = 1.0, 10% = 0.9)
-		// so we use it directly here
 		this.fuzzyThreshold = fuzzyThreshold ?? 1.0
 		this.bufferLines = bufferLines ?? BUFFER_LINES
 	}
@@ -117,11 +181,11 @@ Parameters:
 
 Diff format:
 \`\`\`
-<<<<<< SEARCH
+<<<<<<< SEARCH
 [exact content to find including whitespace]
 =======
 [new content to replace with]
->>>>>> REPLACE
+>>>>>>> REPLACE
 \`\`\`
 
 Example:
@@ -137,7 +201,7 @@ Original file:
 
 Search/Replace content:
 \`\`\`
-<<<<<< SEARCH
+<<<<<<< SEARCH
 def calculate_total(items):
     total = 0
     for item in items:
@@ -147,7 +211,7 @@ def calculate_total(items):
 def calculate_total(items):
     """Calculate total with 10% markup"""
     return sum(item * 1.1 for item in items)
->>>>>> REPLACE
+>>>>>>> REPLACE
 \`\`\`
 
 Usage:
@@ -169,32 +233,71 @@ Your search/replace content here
 		const startTime = options?.collectMetrics ? performance.now() : 0
 		const startLine = options?.startLine
 		const endLine = options?.endLine
-		// Extract the search and replace blocks
-		const match = diffContent.match(/<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/)
+
+		function escapeRegExp(string: string): string {
+			return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+		}
+
+		const searchMarker = "<<<<<<< SEARCH"
+		const dividerMarker = "======="
+		const replaceMarker = ">>>>>>> REPLACE"
+
+		const diffRegex = new RegExp(
+			`${escapeRegExp(searchMarker)}\\r?\\n` +
+				`([\\s\\S]*?)` +
+				`\\r?\\n${escapeRegExp(dividerMarker)}\\r?\\n` +
+				`([\\s\\S]*?)` +
+				`\\r?\\n${escapeRegExp(replaceMarker)}`,
+		)
+
+		const match = diffContent.match(diffRegex)
 		if (!match) {
+			const contentPreview = diffContent.length > 200 ? diffContent.slice(0, 200) + "..." : diffContent
+
+			const markers: string[] = []
+			if (!diffContent.includes(searchMarker)) markers.push("Missing start marker '<<<<<<< SEARCH'")
+			if (!diffContent.includes(dividerMarker)) markers.push("Missing divider '======='")
+			if (!diffContent.includes(replaceMarker)) markers.push("Missing end marker '>>>>>>> REPLACE'")
+
+			const missingMarkers =
+				markers.length > 0
+					? `\nMissing Markers:\n${markers.join("\n")}`
+					: "\nAll markers present but in incorrect format"
+
 			return {
 				success: false,
-				error: `Invalid diff format - missing required SEARCH/REPLACE sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n[search content]\\n=======\\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include both SEARCH and REPLACE sections with correct markers`,
+				error: [
+					`Invalid diff format - missing required SEARCH/REPLACE sections\n`,
+					`Debug Info:`,
+					`- Expected Format:`,
+					`  ${searchMarker}`,
+					`  [search content]`,
+					`  ${dividerMarker}`,
+					`  [replace content]`,
+					`  ${replaceMarker}`,
+					`- Tips:`,
+					`  • Make sure markers are on their own lines`,
+					`  • Check for extra/missing newlines`,
+					`  • Verify exact marker spelling`,
+					missingMarkers,
+					`\nReceived Content:\n${contentPreview}`,
+				].join("\n"),
 			}
 		}
 
-		let [_, searchContent, replaceContent] = match
+		let [, searchContent = "", replaceContent = ""] = match
 
-		// Detect line ending from original content
 		const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n"
 
-		// Strip line numbers from search and replace content if every line starts with a line number
 		if (everyLineHasLineNumbers(searchContent) && everyLineHasLineNumbers(replaceContent)) {
 			searchContent = stripLineNumbers(searchContent)
 			replaceContent = stripLineNumbers(replaceContent)
 		}
 
-		// Split content into lines, handling both \n and \r\n
 		const searchLines = searchContent === "" ? [] : searchContent.split(/\r?\n/)
 		const replaceLines = replaceContent === "" ? [] : replaceContent.split(/\r?\n/)
 		const originalLines = originalContent.split(/\r?\n/)
 
-		// Validate that empty search requires start line
 		if (searchLines.length === 0 && !startLine) {
 			return {
 				success: false,
@@ -202,7 +305,6 @@ Your search/replace content here
 			}
 		}
 
-		// Validate that empty search requires same start and end line
 		if (searchLines.length === 0 && startLine && endLine && startLine !== endLine) {
 			return {
 				success: false,
@@ -210,19 +312,15 @@ Your search/replace content here
 			}
 		}
 
-		// Initialize search variables
 		let matchIndex = -1
 		let bestMatchScore = 0
 		let bestMatchContent = ""
 		const searchChunk = searchLines.join("\n")
 
-		// Determine search bounds
 		let searchStartIndex = 0
 		let searchEndIndex = originalLines.length
 
-		// Validate and handle line range if provided
 		if (startLine && endLine) {
-			// Convert to 0-based index
 			const exactStartIndex = startLine - 1
 			const exactEndIndex = endLine - 1
 
@@ -241,35 +339,29 @@ Your search/replace content here
 				bestMatchScore = similarity
 				bestMatchContent = originalChunk
 			} else {
-				// Set bounds for buffered search
 				searchStartIndex = Math.max(0, startLine - (this.bufferLines + 1))
 				searchEndIndex = Math.min(originalLines.length, endLine + this.bufferLines)
 			}
 		}
 
-		// If no match found yet, try optimized search within bounds
 		if (matchIndex === -1) {
-			// Pre-compute search chunk hash for faster comparison
-			const searchHash = computeRollingHash(searchChunk)
-
-			// Use a sliding window approach with early exit
+			const searchHash = murmurHash3(searchChunk)
 			const windowSize = searchLines.length
 			const maxIndex = searchEndIndex - windowSize + 1
 
 			for (let i = searchStartIndex; i < maxIndex; i++) {
-				// Quick hash check first
 				const chunk = originalLines.slice(i, i + windowSize).join("\n")
-				if (computeRollingHash(chunk) === searchHash) {
+
+				// Quick hash comparison
+				if (murmurHash3(chunk) === searchHash) {
 					matchIndex = i
 					bestMatchScore = 1
 					bestMatchContent = chunk
 					break
 				}
 
-				// If hash doesn't match but we're within threshold range,
-				// do a more detailed similarity check
+				// Detailed similarity check with early exit
 				if (i % 3 === 0) {
-					// Check every 3rd position for performance
 					const similarity = getSimilarity(chunk, searchChunk)
 					if (similarity > bestMatchScore) {
 						bestMatchScore = similarity
@@ -277,7 +369,6 @@ Your search/replace content here
 						bestMatchContent = chunk
 					}
 
-					// Early exit if we found a good enough match
 					if (bestMatchScore >= 0.95) {
 						break
 					}
@@ -285,14 +376,7 @@ Your search/replace content here
 			}
 		}
 
-		// Clear similarity cache to prevent memory leaks
-		if (similarityCache.size > 1000) {
-			similarityCache.clear()
-		}
-
-		// Require similarity to meet threshold
 		if (matchIndex === -1 || bestMatchScore < this.fuzzyThreshold) {
-			const searchChunk = searchLines.join("\n")
 			const originalContentSection =
 				startLine !== undefined && endLine !== undefined
 					? `\n\nOriginal Content:\n${addLineNumbers(
@@ -320,22 +404,18 @@ Your search/replace content here
 			}
 		}
 
-		// Get the matched lines from the original content
 		const matchedLines = originalLines.slice(matchIndex, matchIndex + searchLines.length)
 
-		// Optimize indentation handling
 		const getIndent = (line: string): string => {
 			const match = line.match(/^[\t ]*/)
 			return match ? match[0] : ""
 		}
 
-		// Pre-compute indents once
 		const originalIndent = getIndent(matchedLines[0] || "")
 		const searchBaseIndent = getIndent(searchLines[0] || "")
 		const searchBaseLevel = searchBaseIndent.length
 
-		// Apply the replacement while preserving exact indentation
-		const indentedReplaceLines = replaceLines.map((line) => {
+		const indentedReplaceLines = replaceLines.map((line: string) => {
 			const currentIndent = getIndent(line)
 			const currentLevel = currentIndent.length
 			const relativeLevel = currentLevel - searchBaseLevel
@@ -344,14 +424,12 @@ Your search/replace content here
 			if (relativeLevel < 0) {
 				finalIndent = originalIndent.slice(0, Math.max(0, originalIndent.length + relativeLevel))
 			} else {
-				// Reuse existing indent strings where possible
 				finalIndent = originalIndent + currentIndent.slice(searchBaseLevel)
 			}
 
 			return finalIndent + line.trim()
 		})
 
-		// Construct the final content efficiently
 		const finalParts = []
 		if (matchIndex > 0) {
 			finalParts.push(originalLines.slice(0, matchIndex).join(lineEnding))
