@@ -156,7 +156,12 @@ export class Cline {
 			const { experiments: stateExperimental } = (await this.providerRef.deref()?.getState()) ?? {}
 			experimentalDiffStrategy = stateExperimental?.[EXPERIMENT_IDS.DIFF_STRATEGY] ?? false
 		}
-		this.diffStrategy = getDiffStrategy(this.api.getModel().id, this.fuzzyMatchThreshold, experimentalDiffStrategy)
+		this.diffStrategy = getDiffStrategy(
+			this.api.getModel().id,
+			undefined,
+			this.fuzzyMatchThreshold,
+			experimentalDiffStrategy,
+		)
 	}
 
 	// Storing task to disk for history
@@ -1449,12 +1454,12 @@ export class Cline {
 								const originalContent = await fs.readFile(absolutePath, "utf-8")
 
 								// Apply the diff to the original content
-								const diffResult = (await this.diffStrategy?.applyDiff(
-									originalContent,
-									diffContent,
-									parseInt(block.params.start_line ?? ""),
-									parseInt(block.params.end_line ?? ""),
-								)) ?? {
+								const diffResult = (await this.diffStrategy?.applyDiff(originalContent, diffContent, {
+									startLine: parseInt(block.params.start_line ?? ""),
+									endLine: parseInt(block.params.end_line ?? ""),
+									fileStats: undefined,
+									collectMetrics: undefined,
+								})) ?? {
 									success: false,
 									error: "No diff strategy available",
 								}

@@ -49,7 +49,7 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 		const modelInfo = this.getModel().info
 		const modelId = this.options.openAiModelId ?? ""
 
-		const deepseekReasoner = modelId.includes("deepseek-reasoner")
+		const deepseekReasoner = modelId.includes("deepseek-reasoner") || modelId.includes("deepseek-r1")
 
 		if (this.options.openAiStreamingEnabled ?? true) {
 			const systemMessage: OpenAI.Chat.ChatCompletionSystemMessageParam = {
@@ -58,7 +58,8 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 			}
 			const requestOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
 				model: modelId,
-				temperature: 0,
+				temperature: 0.6,
+				top_p: 0.7,
 				messages: deepseekReasoner
 					? convertToR1Format([{ role: "user", content: systemPrompt }, ...messages])
 					: [systemMessage, ...convertToOpenAiMessages(messages)],
@@ -104,6 +105,8 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 
 			const requestOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
 				model: modelId,
+				temperature: 0.6,
+				top_p: 0.7,
 				messages: deepseekReasoner
 					? convertToR1Format([{ role: "user", content: systemPrompt }, ...messages])
 					: [systemMessage, ...convertToOpenAiMessages(messages)],

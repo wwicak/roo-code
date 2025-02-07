@@ -28,6 +28,8 @@ import {
 	vertexModels,
 	unboundDefaultModelId,
 	unboundModels,
+	nvidiaModels,
+	nvidiaDefaultModelId,
 } from "../../../../src/shared/api"
 import { ExtensionMessage } from "../../../../src/shared/ExtensionMessage"
 import { useExtensionState } from "../../context/ExtensionStateContext"
@@ -153,6 +155,7 @@ const ApiOptions = ({ apiErrorMessage, modelIdErrorMessage }: ApiOptionsProps) =
 						{ value: "lmstudio", label: "LM Studio" },
 						{ value: "ollama", label: "Ollama" },
 						{ value: "unbound", label: "Unbound" },
+						{ value: "nvidia", label: "NVIDIA" },
 					]}
 				/>
 			</div>
@@ -1163,6 +1166,46 @@ const ApiOptions = ({ apiErrorMessage, modelIdErrorMessage }: ApiOptionsProps) =
 				</div>
 			)}
 
+			{selectedProvider === "nvidia" && (
+				<div>
+					<VSCodeTextField
+						value={apiConfiguration?.nvidiaApiKey || ""}
+						style={{ width: "100%" }}
+						type="password"
+						onInput={handleInputChange("nvidiaApiKey")}
+						placeholder="Enter API Key...">
+						<span style={{ fontWeight: 500 }}>NVIDIA API Key</span>
+					</VSCodeTextField>
+					<VSCodeTextField
+						value={apiConfiguration?.nvidiaBaseUrl || ""}
+						style={{ width: "100%", marginTop: 8 }}
+						type="url"
+						onInput={handleInputChange("nvidiaBaseUrl")}
+						placeholder="Default: https://integrate.api.nvidia.com/v1">
+						<span style={{ fontWeight: 500 }}>Base URL (optional)</span>
+					</VSCodeTextField>
+					<div style={{ display: "flex", alignItems: "center", marginTop: 8 }}>
+						<Checkbox
+							checked={apiConfiguration?.nvidiaStreamingEnabled ?? true}
+							onChange={(checked: boolean) => {
+								handleInputChange("nvidiaStreamingEnabled")({
+									target: { value: checked },
+								})
+							}}>
+							Enable streaming
+						</Checkbox>
+					</div>
+					<p
+						style={{
+							fontSize: "12px",
+							marginTop: "5px",
+							color: "var(--vscode-descriptionForeground)",
+						}}>
+						This key is stored locally and only used to make API requests from this extension.
+					</p>
+				</div>
+			)}
+
 			{selectedProvider === "vscode-lm" && (
 				<div>
 					<div className="dropdown-container">
@@ -1350,6 +1393,7 @@ const ApiOptions = ({ apiErrorMessage, modelIdErrorMessage }: ApiOptionsProps) =
 							{selectedProvider === "openai-native" && createDropdown(openAiNativeModels)}
 							{selectedProvider === "deepseek" && createDropdown(deepSeekModels)}
 							{selectedProvider === "mistral" && createDropdown(mistralModels)}
+							{selectedProvider === "nvidia" && createDropdown(nvidiaModels)}
 							{selectedProvider === "unbound" && createDropdown(unboundModels)}
 						</div>
 
@@ -1535,6 +1579,12 @@ export function normalizeApiConfiguration(apiConfiguration?: ApiConfiguration) {
 	switch (provider) {
 		case "anthropic":
 			return getProviderData(anthropicModels, anthropicDefaultModelId)
+		case "nvidia":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.nvidiaModelId || nvidiaDefaultModelId,
+				selectedModelInfo: nvidiaModels[nvidiaDefaultModelId],
+			}
 		case "bedrock":
 			return getProviderData(bedrockModels, bedrockDefaultModelId)
 		case "vertex":

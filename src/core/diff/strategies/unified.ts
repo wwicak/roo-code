@@ -1,5 +1,5 @@
-import { applyPatch } from "diff"
-import { DiffStrategy, DiffResult } from "../types"
+import { applyPatch, parsePatch } from "diff"
+import { DiffStrategy, DiffResult, FileStats } from "../types"
 
 export class UnifiedDiffStrategy implements DiffStrategy {
 	getToolDescription(args: { cwd: string; toolOptions?: { [key: string]: string } }): string {
@@ -108,7 +108,11 @@ Your diff here
 </apply_diff>`
 	}
 
-	async applyDiff(originalContent: string, diffContent: string): Promise<DiffResult> {
+	async applyDiff(
+		originalContent: string,
+		diffContent: string,
+		options?: { startLine?: number; endLine?: number; fileStats?: FileStats; collectMetrics?: boolean },
+	): Promise<DiffResult> {
 		try {
 			const result = applyPatch(originalContent, diffContent)
 			if (result === false) {
@@ -120,9 +124,24 @@ Your diff here
 					},
 				}
 			}
+
+			// Calculate number of lines changed by analyzing the diff
+			const patches = parsePatch(diffContent)
+			const appliedLines = patches.reduce((total, patch) => {
+				return (
+					total +
+					patch.hunks.reduce((hunkTotal, hunk) => {
+						return (
+							hunkTotal + hunk.lines.filter((line) => line.startsWith("+") || line.startsWith("-")).length
+						)
+					}, 0)
+				)
+			}, 0)
+
 			return {
 				success: true,
 				content: result,
+				appliedLines,
 			}
 		} catch (error) {
 			return {
